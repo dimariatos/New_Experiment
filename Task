@@ -41,9 +41,8 @@ class Task(Processor):
         self.stim_on_time = []
         self.stim_off_time = []
 
-        self.constCircle = self._randXYCircle(.2,.46,.15) # here we can change x,y, and radius stim 1
-        self.constCircle1 = self._randXYCircle1(.2,.46,.15)  #here we can change x,y, and radius stim 2
-
+        self.constCircle = self._randXYCircle(.2,.46,.15) # here we can change x,y of the circle which determines the position of the cirtcle, and the radius stim 1
+        self.constCircle1 = self._randXYCircle1(.2,.46,.15) # here we can change x,y of the circle which determines the position of the cirtcle, and the radius stim 1
 
         self.win = visual.Window([1920, 1080], screen=screen, units='height',
                                   color='white', fullscr=True)
