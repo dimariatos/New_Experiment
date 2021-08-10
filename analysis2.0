@@ -128,7 +128,172 @@ def function1(pickle,hdf5):
     
     return [merged1,merged2]
 
+
+def test_function2(merged):
+
+
+    total = merged
+
+    '''TOTAL IS EXACTLY THE SAME AND DOESNT NEED TO EXIST'''
+    #make laser true or false
     
+    laser = total['laser']
+    
+    laser1 = laser%2==0
+    
+    
+    #convert coordinates into psychopy
+    
+    snout = ((total.iloc[0:total['snout_x'].shape[0]-1,1:3] - [45, 15]) / 380) * .93 + .035
+    snout['snout_y'] = 1-snout['snout_y']
+    snout = (snout-0.5)*2
+    
+    total = pd.concat([total, snout], axis=1).reindex(total.index)
+    
+    leftear = ((total.iloc[0:total['left_ear_x'].shape[0]-1,4:6] - [45, 15]) / 380) * .93 + .035
+    #snout = ((total.iloc[764,2] - [45, 15]) / 380) * .93 + .035
+    leftear['left_ear_y'] = 1-leftear['left_ear_y']
+    leftear = (leftear-0.5)*2
+    
+    total = pd.concat([total, leftear], axis=1).reindex(total.index)
+    
+    rightear = ((total.iloc[0:total['right_ear_x'].shape[0]-1,7:9] - [45, 15]) / 380) * .93 + .035
+    #snout = ((total.iloc[764,2] - [45, 15]) / 380) * .93 + .035
+    rightear['right_ear_y'] = 1-rightear['right_ear_y']
+    rightear = (rightear-0.5)*2
+    
+    total = pd.concat([total, rightear], axis=1).reindex(total.index)
+    
+    tail = ((total.iloc[0:total['tail_x'].shape[0]-1,10:12] - [45, 15]) / 380) * .93 + .035
+    #snout = ((total.iloc[764,2] - [45, 15]) / 380) * .93 + .035
+    tail['tail_y'] = 1-tail['tail_y']
+    tail = (tail-0.5)*2
+    
+    
+    total = pd.concat([total, tail], axis=1).reindex(total.index)
+    print('sofar so good')
+    
+    total.columns=['left_head_body_angle', 'snout_x_w','snout_y_w','snout_likelihood_w','left_ear_x_w','left_ear_y_w',
+                'left_ear_likelihood','right_ear_x','right_ear_y','right_ear_likelihood',
+                'tail_x','tail_y','tail_likelihood','frame_time','pose_time','x','y','edges'
+                ,'opacity','radius','orientation','laser','time','x_snout','y_snout','left_ear_x_c','left_ear_y_c','right_ear_x_c','right_ear_y_c','tail_x_c','tail_y_c']
+    
+    total = pd.concat([total, laser1], axis=1).reindex(total.index)
+    
+    
+    total = total.reset_index()
+    "find the angle of the dot from x axis and invert head angle in pose so the subtraction with dot angle is correct"""
+    
+    
+    #Make snout psychopy coordinates fit with the stimulus psychopy coordinates
+    total['x_snout'] = total['x_snout'] * 0.4
+    total['y_snout'] = total['y_snout'] * 0.5
+    
+    total['left_ear_x_c'] = total['left_ear_x_c'] * 0.4
+    total['left_ear_y_c'] = total['left_ear_y_c'] * 0.5
+    
+    total['right_ear_x_c'] = total['right_ear_x_c'] * 0.4
+    total['right_ear_y_c'] = total['right_ear_y_c'] * 0.5
+    
+    total['tail_x_c'] = total['tail_x_c'] * 0.4
+    total['tail_y_c'] = total['tail_y_c'] * 0.5
+    
+    # find dangle 
+# =============================================================================
+#     dangle = []
+#     for i in total.index:
+#         dangle.append(math.atan2(total['y'][i], total['x'][i]))
+#     total['dangle'] = dangle
+#     total['dangle'] = np.rad2deg(total['dangle'])
+# =============================================================================
+    total['dangle']=np.arctan2(total['y'],total['x'])
+    total['dangle'] = np.rad2deg(total['dangle'])
+    total['dx'] = total['x_snout'] - total['x']
+    total['dy'] = total['y_snout'] - total['y']
+    
+    total['dxsq'] = total['dx']**2
+    total['dysq'] = total['dy']**2
+    total['dis'] = total['dxsq'] + total['dysq']
+    total['dis'] = np.sqrt(total['dis'])
+    
+    print('we made it that far')
+    
+    #calculate the line between the snout and midpoint between ears
+    
+    [x1,y1] = [total.x_snout,total.y_snout]
+    [x2,y2] = [total.left_ear_x_c,total.left_ear_y_c]
+    [x3,y3] = [total.right_ear_x_c,total.right_ear_y_c]
+    [x4,y4] = [(x3+x2)/2,(y3+y2)/2]
+    
+    m = (y1 - y4) /(x1 - x4)
+    b = y1 - m * x1
+    
+    
+    ysnout = total['y_snout']
+    xsnout = total['x_snout']
+    xstimulus = total['x']
+    ystimulus = total['y']
+    y22 = m*(xstimulus) + b
+    
+    m_b=(ysnout-ystimulus)/(xsnout-xstimulus)
+    tana=np.absolute((m_b-m)/(1+m*m_b))
+    mouseangles=np.arctan(tana)
+    mouseangles= np.rad2deg(mouseangles)
+    
+    
+    df = pd.DataFrame(mouseangles)
+    total = pd.concat([total, df], axis=1).reindex(total.index)
+    
+    total = total.drop(columns=['index'])
+    
+    
+    new_total = total
+    
+    new_total['looking']=['right' if i>180 else 'left' for i in  new_total['left_head_body_angle'] ]
+    
+    
+    # drop the nan values
+    
+    new_total = new_total.dropna()
+    new_total = new_total[new_total['opacity'] != 100]
+    new_total = new_total[new_total['y_snout'] < 0.4]
+    new_total = new_total[new_total['y_snout'] > 0].reset_index()
+    
+    
+    #find the start, end and the number of trials
+    
+    new_total.insert(40, 'trial', 0)
+    x = 0
+    idx = 0
+    print('evan here')
+    for i in range(len(new_total)):
+        if x == new_total['x'][i]:
+            new_total.iloc[i,40] = idx
+    
+        else:
+            x = new_total['x'][i]
+            idx = idx + 1
+            new_total.iloc[i,40] = idx
+    print('pyjamas')
+    Side = helpingdf(new_total)
+    Side1 = Side['trial']
+    Side2 = Side['where_dist']
+    Side = pd.concat([Side1, Side2], axis=1)
+    Side = Side.reset_index()
+    Side = Side.drop(columns=['index'])
+    new_total = new_total.drop(columns=['left_head_body_angle', 'snout_x_w','snout_y_w','snout_likelihood_w','left_ear_x_w','left_ear_y_w',
+                'left_ear_likelihood','right_ear_x','right_ear_y','right_ear_likelihood',
+                'tail_x','tail_y','tail_likelihood','x_snout','y_snout','left_ear_x_c','left_ear_y_c','frame_time','pose_time', 'index','right_ear_x_c','right_ear_y_c','tail_x_c','tail_y_c', 'dangle','dx',
+                'dy','dxsq','dysq'])
+    print('bananas')
+    new_total.columns=['x', 'y','edges','opacity','radius','orientation','lasernum','time','laser','distance','mouse_angle','trial','looking']
+    print('bananas in pyjamas')
+    
+    return [new_total,Side]
+    
+
+
+
 def function2(merged):
 
     total = merged
@@ -472,7 +637,7 @@ def final(pickle, hdf5):
 # =============================================================================
 
 
-def is_distracted(new_total,threshold=(-10),x=5):
+def is_distracted(new_total,threshold=(-20),x=6):
     trial_dist=new_total.pivot(columns='trial',values='distance')
 
     min_dist_per_trial=trial_dist.min()
@@ -497,6 +662,20 @@ def is_distracted(new_total,threshold=(-10),x=5):
     newtotal3=new_total.merge(distracted,how='outer',on='trial')
     
     return [distracted, newtotal3]
+
+
+#acceleration tail (speed)
+#min acceleration pere trial
+#set a y threshold or not
+#return a list of all the trials with true ot false depending 
+#on if mindecel<threshold
+
+
+
+
+
+
+
 
 
 
