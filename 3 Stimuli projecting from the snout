@@ -1,0 +1,298 @@
+from dlclive.processor import Processor
+from psychopy import core, visual
+import pyfirmata
+import numpy as np
+import time
+import pickle
+import datetime
+
+class Task(Processor):
+    def __init__(self, dotR=0.05, arduinoPort='/dev/ttyACM1', screen=1, laser=1, **kwargs):
+        super().__init__(**kwargs)
+        self.board = pyfirmata.Arduino(arduinoPort)
+        self.board.digital[2].write(1)
+        self.statePin = self.board.get_pin('d:7:i')
+        if laser == 1:
+            self.laserPin = self.board.get_pin('d:12:o')
+            self.board.digital[8].write(0)
+        else:
+            self.laserPin = self.board.get_pin('d:8:o')
+            self.board.digital[12].write(0)
+
+        self.it = pyfirmata.util.Iterator(self.board)
+        self.it.start()
+        self.state = self.statePin.read()
+
+        self.thedata = np.array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"0"], dtype=object) #where we save our data
+        self.the_Op = 0.0 # INITIALZIE opacity VALUE for us to change during process.....
+        self.if_we_spin = 0 # INITIALZIE IF WE SPINNNNNNN
+        self.the_Op1= 0.0 # INITIALZIE opacity VALUE for us to change during process.....
+        self.if_we_spin1= 0 # INITIALZIE IF WE SPINNNNNNN
+        self.the_Op2= 0.0 # INITIALZIE opacity VALUE for us to change during process.....
+        self.if_we_spin2= 0 # INITIALZIE IF WE SPINNNNNNN
+        self.position_x = 0
+        self.position_y =0
+
+        self.startingFlag = 0
+        self.gatherdata = 0
+        self.save_Data_when_mouse_turn_it_off = 0
+        self.datagathering =0
+        self.wewantfirstdata = 0
+        self.laser = 0
+
+
+        self.stim_on_time = []
+        self.stim_off_time = []
+
+        self.constCircle = self._randXYCircle(.2,.46,.15) # here we can change x,y of the circle which determines the position of the cirtcle, and the radius stim 1
+        self.constCircle1 = self._randXYCircle1(.2,.46,.15) # here we can change x,y of the circle which determines the position of the cirtcle, and the radius stim 1
+        self.constCircle2 = self._randXYCircle2(.2,.46,.15)
+        self.win = visual.Window([1920, 1080], screen=screen, units='height',
+                                  color='white', fullscr=True)
+
+        self.circle = visual.Circle(self.win, radius=0.05, units='height', pos=[0.1,0], # here we can change the size of the stimulus, radius
+                                     fillColor='black', opacity=0.0, edges=128) #postion ranges from - to postivie, 0,0 is the middle.
+        
+        self.circle1 = visual.Circle(self.win, radius=0.05, units='height', pos=[0.1,0], # here we can change the size of the stimulus, radius
+                                     fillColor='black', opacity=0.0, edges=128) #postion ranges from - to postivie, 0,0 is the middle.
+
+        self.circle2 = visual.Circle(self.win, radius=0.05, units='height', pos=[0.1,0], # here we can change the size of the stimulus, radius
+                                     fillColor='black', opacity=0.0, edges=128) #postion ranges from - to postivie, 0,0 is the middle.
+        self.circle1.draw()
+        self.circle.draw()
+        self.circle2.draw()
+        self.win.flip() #look at this video. Here he make a circle disapepar and appear, he window flipped
+         
+    def _randXYCircle(self, centerX, centerY, R):
+        r = R * np.sqrt(np.random.rand())
+        theta = np.random.rand() * 2 * np.pi
+        x = centerX + r * np.cos(theta)
+        y = centerY + r * np.sin(theta)
+        if y > centerY:
+            y = centerY - (y - centerY)
+        return x,y
+
+    def _randXYCircle1(self, centerX, centerY, R):
+        r = R * np.sqrt(np.random.rand())
+        theta = np.random.rand() * 2 * np.pi
+        x = centerX + r * np.cos(theta)
+        y = centerY + r * np.sin(theta)
+        if y > centerY:
+            y = centerY - (y - centerY)
+        return x,y
+    
+    def _randXYCircle2(self, centerX, centerY, R):
+        r = R * np.sqrt(np.random.rand())
+        theta = np.random.rand() * 2 * np.pi
+        x = centerX + r * np.cos(theta)
+        y = centerY + r * np.sin(theta)
+        if y > centerY:
+            y = centerY - (y - centerY)
+        return x,y
+
+    def _exit(self): # doesn't work -- not implemented in DLC live?
+        self.board.digital[2].write(0)
+        self.board.exit()
+
+    def process(self, pose, **kwargs):
+        #strftime("%m/%d/%Y, %H:%M:%S")
+        #time = time.time()
+
+        self.state = self.statePin.read()
+        #print(self.state)
+        #self.circle.opacity = 0
+        #print(self.circle.opacity)
+       
+        # PAINFUL calibration by ha
+        snout = ((pose[0,:2] - [45, 15]) / 380) * .93 + .035
+        snout[1] = 1-snout[1]
+
+        def _randStim(): # this function randomises the attributes of the stimulus
+            opacity = np.random.choice([1.0,1.0])
+            edges = np.random.choice([3, 4, 128])
+            radius = np.random.choice([0.025, 0.05])
+            ori = np.random.choice([-10, 0])
+            things = [opacity, edges, radius, ori]
+            return things
+
+        def savemydata():
+            self.thedata = np.vstack((self.thedata,[100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100,100, time.time()])) # The 100 just shows thats when we end... As a marker
+
+            something = self.thedata
+            with open("/home/titan/Desktop/Elli/theWorkFolder/thedata%d.pkl"%(self.datagathering),"wb") as outputfile:
+                pickle.dump(something,outputfile)
+
+            ## THIS REMOVES ANY OLD FILE SO WE JUST HAVE THE BIGGEST ONE
+            import glob, os
+            os.chdir("/home/titan/Desktop/Elli/theWorkFolder")
+            for file in glob.glob("*.pkl"):
+                #print(file)
+                #print(type(file))
+                first_split = file.split(".pkl")[0]
+                number = int(first_split.split("thedata")[1])
+                if number < self.datagathering:
+                    os.remove("/home/titan/Desktop/Elli/theWorkFolder/thedata%d.pkl"%(number))
+
+            ## WE MAKE A NEW FILE FOR EVERY TIRAL
+            self.datagathering = self.datagathering+1
+            self.laser = self.laser + 1
+            print(self.laser,'after adding one')
+
+        if ((self.state == False) & (snout[1] < .5)): #This is what gives the circle a random position.
+            self.constCircle = self._randXYCircle(.2,.46,.15)
+            self.constCircle1 = self._randXYCircle1(.2,.46,.15)
+            self.constCircle2 = self._randXYCircle1(.2,.46,.15)
+            #print("WE ARE CHANGING THE POSITION OF THE CIRCLE")
+
+        if (snout[1] > 0.3) & (self.state == True): #ALPHA
+            """
+                This is basically the last state that happens.
+            """
+            
+            ## SHOULD ONLY SHOW THE CIRCLE EVERY 1/4th TIME
+            if (self.datagathering%3) == 0: #Datagathering is a counting value that increase everytime the mouse re-initialize the stimulus why turning the state from TRUE --> FALSE
+                self.circle.opacity = self.the_Op   #This is what makes the opacity of the circle
+                self.circle.ori -= self.if_we_spin #This is what spinns the cspahe
+                self.circle1.opacity = self.the_Op1
+                self.circle1.ori -= self.if_we_spin1
+                self.circle2.opacity = self.the_Op2
+                self.circle2.ori -= self.if_we_spin2
+                self.position_x = np.array(snout[0]) - 0.45
+                self.position_y = np.array(snout[1]) - 0.55
+                self.circle.pos = (self.position_x,self.position_y)
+                self.circle1.pos = np.array(snout) - .45
+                self.circle2.pos = np.array(snout) - .5
+                ## MAKE LASER READ
+                self.circle.draw()
+                self.circle1.draw()
+                self.circle2.draw()
+                self.win.flip()
+                
+
+            ## GATHER DATA
+            if self.wewantfirstdata == 1: #We save data WHEN the mouse pass 0.5 and state == True, just that 1 time
+                self.thedata = np.vstack((self.thedata,[self.circle.pos[0],self.circle.pos[1],self.circle.edges,self.circle.opacity*2, self.circle.radius, self.if_we_spin,
+                                                        self.thedata,self.circle1.pos[0],self.circle1.pos[1],self.circle1.edges,self.circle1.opacity*2, self.circle1.radius,
+                                                                      self.if_we_spin1, self.circle2.pos[0],self.circle2.pos[1],self.circle2.edges,self.circle2.opacity*2, self.circle2.radius, self.if_we_spin2,
+                                                                      self.laser, time.time()])) # We save it in the numpy array to later review.
+            self.wewantfirstdata = 0
+
+
+        elif (self.state == True): # BETA
+            """
+                This is basically the 2nd thing that happens after the first state GAMMA when mouse init by putting snout in the init hole.
+           """
+            if (self.laser%2) == 0:
+                    self.laserPin.write(1)
+            """
+                Now from GAMMA we set the startingFlag to be equal 1. Meaning that this below will happend. However, the last line in BETA makes startingFlag go to 0.
+                There fore we only change the pos, opacity, circle edgem and so on 1 time per round.
+            """
+            if (self.startingFlag == 1):
+                ## CREATES RAND POSITION FOR CIRCLE FOR EVERYTIME WE RESET IT OR STARTED IT. MEANING THAT THE THIS WILL JUST HAPPEN WHEN self.state TURNS FIRST TRUE
+                self.circle.pos =  self.constCircle
+                self.circle1.pos = self.constCircle1
+                self.circle2.pos = self.constCircle1
+
+                """ _randStim()
+                    THIS is what gives us the randomized values from function _randStim, where the output or return of the function is a list of values that char the shape.
+                """
+                whattochange = _randStim() 
+                self.the_Op = whattochange[0] # This gives opacity of either 0.25, 0.5, 1.0
+                self.circle.edges = whattochange[1] # This gives # of edges of either: 3, 4, 128
+                self.circle.radius = whattochange[2] # This gives me a radius of either: 0.01, 0.025, 0.05
+                self.if_we_spin = whattochange[3] # This gives me a orientation of either -10 or 0
+                
+                whattochange1 = _randStim()
+                self.the_Op1=whattochange1[0] # This gives opacity of either 0.25, 0.5, 1.0
+                self.circle1.edges=whattochange1[1] # This gives # of edges of either: 3, 4, 128
+                self.circle1.radius = whattochange1[2] # This gives me a radius of either: 0.01, 0.025, 0.05
+                self.if_we_spin1= whattochange1[3] # This gives me a orientation of either -10 or 0
+
+                whattochange2 = _randStim()
+                self.the_Op2=whattochange2[0] # This gives opacity of either 0.25, 0.5, 1.0
+                self.circle2.edges=whattochange2[1] # This gives # of edges of either: 3, 4, 128
+                self.circle2.radius = whattochange2[2] # This gives me a radius of either: 0.01, 0.025, 0.05
+                self.if_we_spin2= whattochange2[3] # This gives me a orientation of either -10 or 0
+                
+                ## GATHER DATA
+                self.thedata = np.vstack((self.thedata,[self.circle.pos[0],self.circle.pos[1],self.circle.edges,self.circle.opacity*2, self.circle.radius, self.if_we_spin,
+                                                        self.thedata,self.circle1.pos[0],self.circle1.pos[1],self.circle1.edges,self.circle1.opacity*2, self.circle1.radius,
+                                                                      self.if_we_spin1, self.circle2.pos[0],self.circle2.pos[1],self.circle2.edges,self.circle2.opacity*2, self.circle2.radius, self.if_we_spin2,
+                                                                      self.laser, time.time()])) # We save it in the numpy array to later review.
+
+                """
+                    As Stated in GAMMA. This will tell the process to save the last values when going from state ALPHA to GAMMA
+                """
+                ## TELL TO SAVE LAST DATA OF MOUSE MAKE STATE == FALSE
+                self.save_Data_when_mouse_turn_it_off =1 #We tell the system that we want to save the data when we go back to false
+            
+            """
+                Makes sure we don't change the char of the shape multiple times over and over...... while in state beta
+            """
+
+            self.startingFlag = 0
+        elif (self.state == False): # GAMMA
+            """
+                This basically the first thing that ever happen for every round.
+            """
+
+            ## GATHER DATA AND SAVE DATA TO FILE
+            if self.save_Data_when_mouse_turn_it_off == 1: # This saves the data when the mouse has put its snout in the 2nd port
+                self.thedata = np.vstack((self.thedata,[self.circle.pos[0],self.circle.pos[1],self.circle.edges,self.circle.opacity*2, self.circle.radius, self.if_we_spin,
+                                                        self.thedata,self.circle1.pos[0],self.circle1.pos[1],self.circle1.edges,self.circle1.opacity*2, self.circle1.radius,
+                                                                      self.if_we_spin1, self.circle2.pos[0],self.circle2.pos[1],self.circle2.edges,self.circle2.opacity*2, self.circle2.radius, self.if_we_spin2,
+                                                                      self.laser, time.time()])) # We save it in the numpy array to later review. self.if_we_spin, time.time()])) # We save it in the numpy array to later review.
+                savemydata()
+
+            """ self.save_Data_when_mouse_turn_it_off
+                This is a flag from BETA that just tells us that we need to save the data when the mouse has changed the state from TRUE to FALSE, jumping from ALPHA to GAMMA. This can only happen one time thats why make it go to 0 in
+                Gamma.
+                Earlier it can be seen in BETA
+            """
+            self.save_Data_when_mouse_turn_it_off = 0
+
+            ## MAKE NOT READ LASER
+            self.laserPin.write(0)
+
+            """ self.startingFlag
+                So here we init a flag that says.... we gonna save data. This can only happen if self.state == false.
+                This is important as that will also tell the simulation that we want to give a new pos, op, edge#, radius, and if we spin, which can be seen in elif(self.state == True) / BETA
+                following this flag look in beta
+            """
+            ## TELL IT TO GATHER DATA WHEN MOUSE PUTS STATE == TRUE, 
+            self.startingFlag = 1
+
+            """ self.wewantfirstdata
+                In this flag we are just making sure that if the mouse cross the 0.5 mark multiple times it does not change anything about the shape.
+                Following this flag can be seen in alpha
+            """
+
+            ## TELL IT TO GATHER DATA WHEN MOUSE IS FIRST ABOVE 0.5 AND STATE == TRUE
+            self.wewantfirstdata = 1
+
+            self.circle.opacity = 0.0
+            self.circle.draw()
+            self.circle1.opacity = 0.0
+            self.circle1.draw()
+            self.circle2.opacity = 0.0
+            self.circle2.draw()
+            self.win.flip()
+            
+            
+        return pose
+            
+    def save(self, file=None):
+   
+        ### save stim on and stim off times
+        save_code = 0
+        if file:
+            try:
+                pickle.dump(
+                    {"stim_on": self.stim_on_time, "stim_off": self.stim_off_time},
+                    open(file, "wb"),
+                )
+                save_code = 1
+            except Exception:
+                save_code = -1
+        return save_code
